@@ -1,0 +1,51 @@
+# ParcelPilot AI Support - full stack.
+#
+#   docker compose up --build
+#
+# Services:
+#   ollama   - local LLM + embeddings runtime (models cached in a volume)
+#   backend  - FastAPI agent API (waits for ollama, pulls models, ingests data)
+#   frontend - React app served by nginx, proxies /api to backend
+#
+# First run downloads the models (~5 GB) and may take several minutes.
+
+services:
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_models:/root/.ollama
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  backend:
+    build: ./backend
+    depends_on:
+      - ollama
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+      CHAT_MODEL: ${CHAT_MODEL:-llama3.1:8b}
+      EMBED_MODEL: ${EMBED_MODEL:-nomic-embed-text}
+      DOC_DIR: /data/docs
+      STATE_DIR: /data/state
+    volumes:
+      # Mount the given data pack read-only, and a writable state volume.
+      - "./Doc Folder:/data/docs:ro"
+      - backend_state:/data/state
+    ports:
+      - "8000:8000"
+
+  frontend:
+    build: ./frontend
+    depends_on:
+      - backend
+    ports:
+      - "8090:80"
+
+volumes:
+  ollama_models:
+  backend_state:

@@ -1,0 +1,201 @@
+"""The agent loop: LLM + tools + a bounded loop, streamed as structured events.
+
+Event types yielded (consumed by the API -> SSE -> UI):
+  * {"type": "tool_call",   "name", "arguments"}
+  * {"type": "tool_result", "name", "result"}
+  * {"type": "pending_action", "action": <proposal>}   # pause for confirmation
+  * {"type": "action_executed" / "action_cancelled", ...}
+  * {"type": "message", "content", "citations", "confidence", "trust_notes"}
+  * {"type": "error", "message"}
+  * {"type": "done"}
+
+The `messages` list is mutated in place so the caller (session store) keeps the
+full transcript for follow-up turns and for confirmation resume.
+"""
+
+from __future__ import annotations
+
+import json
+from typing import Any, Iterator
+
+from ..auth import AuthContext
+from ..ollama_client import chat
+from ..tools.registry import tool_schemas, get_tool
+from ..tools import actions
+from .. import config
+from . import trust
+
+_FALLBACK = (
+    "I couldn't complete this confidently with the tools and sources available, "
+    "so I'm escalating it to a human on the ParcelPilot support team rather than "
+    "guessing."
+)
+
+
+def _parse_args(raw: Any) -> dict:
+    """Ollama usually returns a dict; be tolerant of a JSON string (repair once)."""
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, str):
+        try:
+            return json.loads(raw)
+        except json.JSONDecodeError:
+            # Lenient repair: single -> double quotes.
+            try:
+                return json.loads(raw.replace("'", '"'))
+            except json.JSONDecodeError:
+                return {}
+    return {}
+
+
+def _tool_msg(name: str, obj: Any) -> dict:
+    return {"role": "tool", "name": name, "content": json.dumps(obj, default=str)}
+
+
+_OVERRIDE_QUERIES = {
+    "cancellation_eligibility": "cancellation fee waiver for BOOKED shipment before pickup",
+    "service_credit_check": "failed pickup service credit threshold and amount",
+}
+
+
+def run(ctx: AuthContext, messages: list[dict]) -> Iterator[dict]:
+    """Drive the tool-calling loop until a final answer or a pending action."""
+    tools = tool_schemas()
+    retrieved: list[dict] = []  # accumulate document hits for citations/trust
+
+    # Reliability guard: a small local model often stops after the calculator and
+    # ignores contract_may_override. We force it to read the agreement before it
+    # is allowed to give a final number.
+    contract_override_flagged = False
+    did_search = False
+    override_query = ""
+    forced_nudges = 0
+
+    for _step in range(config.AGENT_MAX_STEPS):
+        try:
+            msg = chat(messages, tools=tools)
+        except Exception as exc:  # network / model error
+            yield {"type": "error", "message": f"Model call failed: {exc}"}
+            yield {"type": "done"}
+            return
+
+        tool_calls = msg.get("tool_calls") or []
+        # Record the assistant turn (with any tool_calls) in the transcript.
+        assistant_entry: dict[str, Any] = {"role": "assistant", "content": msg.get("content", "")}
+        if tool_calls:
+            assistant_entry["tool_calls"] = tool_calls
+        messages.append(assistant_entry)
+
+        if not tool_calls:
+            # Guard: don't let the model finalise a fee/credit before it has read
+            # the customer's agreement that may override the default.
+            if contract_override_flagged and not did_search and forced_nudges < 2:
+                forced_nudges += 1
+                messages.pop()  # drop this premature "final" turn
+                messages.append({
+                    "role": "user",
+                    "content": "[system] The calculator reported contract_may_override=true, "
+                               "so a signed customer agreement may change this. Before you answer, "
+                               f"call search_documents (e.g. query: '{override_query}') to read the "
+                               "agreement, then base the final fee/credit on it if it applies. "
+                               "Do not state a final number yet, and never invent a source.",
+                })
+                continue
+
+            analysis = trust.analyze(retrieved)
+            yield {
+                "type": "message",
+                "content": msg.get("content", ""),
+                "citations": analysis["citations"],
+                "confidence": analysis["confidence"],
+                "trust_notes": analysis["notes"],
+            }
+            yield {"type": "done"}
+            return
+
+        pending: dict | None = None
+        for call in tool_calls:
+            fn = call.get("function", {})
+            name = fn.get("name", "")
+            args = _parse_args(fn.get("arguments"))
+            yield {"type": "tool_call", "name": name, "arguments": args}
+
+            spec = get_tool(name)
+            if spec is None:
+                result = {"error": "unknown_tool", "message": f"No tool named '{name}'."}
+                messages.append(_tool_msg(name, result))
+                yield {"type": "tool_result", "name": name, "result": result}
+                continue
+
+            try:
+                result = spec.handler(ctx, args)
+            except Exception as exc:
+                result = {"error": "tool_exception", "message": str(exc)}
+
+            if name == "search_documents" and isinstance(result, dict) and "results" in result:
+                retrieved.extend(result["results"])
+                did_search = True
+            if (name in _OVERRIDE_QUERIES and isinstance(result, dict)
+                    and result.get("contract_may_override")):
+                contract_override_flagged = True
+                override_query = _OVERRIDE_QUERIES[name]
+
+            if spec.requires_confirmation and "error" not in result:
+                # Prepared, but NOT executed. Pair the tool call with a response so
+                # the transcript stays valid, then pause the loop.
+                pending = result
+                messages.append(_tool_msg(name, {"status": "prepared_awaiting_confirmation", "proposal": result}))
+                yield {"type": "tool_result", "name": name, "result": result}
+            else:
+                messages.append(_tool_msg(name, result))
+                yield {"type": "tool_result", "name": name, "result": result}
+
+        if pending is not None:
+            yield {"type": "pending_action", "action": pending}
+            yield {"type": "done"}
+            return
+
+    # Loop exhausted: bias toward escalation rather than a confident guess.
+    analysis = trust.analyze(retrieved)
+    yield {
+        "type": "message",
+        "content": _FALLBACK,
+        "citations": analysis["citations"],
+        "confidence": "low",
+        "trust_notes": ["Reached the reasoning-step limit; escalated to a human."],
+    }
+    yield {"type": "done"}
+
+
+def _final_turn(ctx: AuthContext, messages: list[dict]) -> Iterator[dict]:
+    """Ask the model for a closing message WITHOUT tools (used after confirmation)."""
+    try:
+        msg = chat(messages, tools=None)
+    except Exception as exc:
+        yield {"type": "error", "message": f"Model call failed: {exc}"}
+        yield {"type": "done"}
+        return
+    messages.append({"role": "assistant", "content": msg.get("content", "")})
+    yield {"type": "message", "content": msg.get("content", ""), "citations": [], "confidence": "n/a", "trust_notes": []}
+    yield {"type": "done"}
+
+
+def confirm(ctx: AuthContext, messages: list[dict], proposal: dict, approved: bool) -> Iterator[dict]:
+    """Resume after the user confirms/declines a prepared action."""
+    if approved:
+        exec_result = actions.execute_action(ctx, proposal)
+        yield {"type": "action_executed", "result": exec_result}
+        messages.append({
+            "role": "user",
+            "content": f"[system] The user CONFIRMED action {proposal['action_id']}. "
+                       f"It was executed: {exec_result.get('message')}. "
+                       f"Give a brief final confirmation to the user. Do not call any tools.",
+        })
+    else:
+        yield {"type": "action_cancelled", "action_id": proposal.get("action_id")}
+        messages.append({
+            "role": "user",
+            "content": f"[system] The user DECLINED action {proposal.get('action_id')}. "
+                       f"Do not perform it. Acknowledge and offer alternatives. Do not call any tools.",
+        })
+    yield from _final_turn(ctx, messages)
