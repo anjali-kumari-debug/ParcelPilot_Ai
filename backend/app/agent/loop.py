@@ -18,7 +18,7 @@ from __future__ import annotations
 import json
 from typing import Any, Iterator
 
-from ..auth import AuthContext
+from ..auth import AuthContext, find_foreign_account_refs
 from ..ollama_client import chat
 from ..tools.registry import tool_schemas, get_tool
 from ..tools import actions
@@ -30,6 +30,41 @@ _FALLBACK = (
     "so I'm escalating it to a human on the ParcelPilot support team rather than "
     "guessing."
 )
+
+_EGRESS_NOTE = "Blocked an outbound answer that referenced another account (egress access-control)."
+
+
+def _cross_account_refusal(ctx: AuthContext) -> str:
+    """Canonical refusal shared by the ingress and egress access-control gates."""
+    return (
+        f"I can only access {ctx.user_name}'s own account ({ctx.account_id}) - "
+        "its orders, tickets, and agreement. I can't share another customer's "
+        "account details or contract terms. If you need information about a "
+        "different account, please have an authorised ParcelPilot operations "
+        "user assist you."
+    )
+
+
+def _egress_refusal(ctx: AuthContext, content: str, retrieved: list[dict]) -> str | None:
+    """Layer 2 - egress attribution gate.
+
+    Access control is enforced at retrieval time, but the model can still take
+    the caller's OWN (correctly scoped) sources and narrate them as if they
+    belonged to another customer. This gate inspects the OUTBOUND answer and
+    refuses if, for a customer, it either
+      * names another account (by id or brand, spacing-robust), or
+      * was somehow grounded in a source owned by another account.
+    Internal users may speak across accounts, so this never fires for them.
+    """
+    if not ctx.is_customer:
+        return None
+    if find_foreign_account_refs(ctx, content or ""):
+        return _cross_account_refusal(ctx)
+    for hit in retrieved or []:
+        acct = hit.get("account_id")
+        if acct and acct not in ("ALL", ctx.account_id):
+            return _cross_account_refusal(ctx)
+    return None
 
 
 def _parse_args(raw: Any) -> dict:
@@ -60,6 +95,27 @@ _OVERRIDE_QUERIES = {
 
 def run(ctx: AuthContext, messages: list[dict]) -> Iterator[dict]:
     """Drive the tool-calling loop until a final answer or a pending action."""
+    # Access-control guard (defence in depth): if a customer's request names
+    # another account, refuse in code before any model/tool work. The tool layer
+    # already scopes reads, but this stops the model from answering a "what are
+    # <other customer>'s terms" question using this customer's own sources.
+    last = messages[-1] if messages else {}
+    if (ctx.is_customer and last.get("role") == "user"
+            and not str(last.get("content", "")).startswith("[system]")):
+        foreign = find_foreign_account_refs(ctx, str(last.get("content", "")))
+        if foreign:
+            refusal = _cross_account_refusal(ctx)
+            messages.append({"role": "assistant", "content": refusal})
+            yield {
+                "type": "message",
+                "content": refusal,
+                "citations": [],
+                "confidence": "high",
+                "trust_notes": ["Blocked a cross-account request in the access-control layer."],
+            }
+            yield {"type": "done"}
+            return
+
     tools = tool_schemas()
     retrieved: list[dict] = []  # accumulate document hits for citations/trust
 
@@ -102,10 +158,26 @@ def run(ctx: AuthContext, messages: list[dict]) -> Iterator[dict]:
                 })
                 continue
 
+            content = msg.get("content", "")
+            refusal = _egress_refusal(ctx, content, retrieved)
+            if refusal is not None:
+                # Scrub the transcript so the leaked wording never persists into
+                # a follow-up turn, then return the canonical refusal instead.
+                messages[-1]["content"] = refusal
+                yield {
+                    "type": "message",
+                    "content": refusal,
+                    "citations": [],
+                    "confidence": "high",
+                    "trust_notes": [_EGRESS_NOTE],
+                }
+                yield {"type": "done"}
+                return
+
             analysis = trust.analyze(retrieved)
             yield {
                 "type": "message",
-                "content": msg.get("content", ""),
+                "content": content,
                 "citations": analysis["citations"],
                 "confidence": analysis["confidence"],
                 "trust_notes": analysis["notes"],
@@ -175,8 +247,16 @@ def _final_turn(ctx: AuthContext, messages: list[dict]) -> Iterator[dict]:
         yield {"type": "error", "message": f"Model call failed: {exc}"}
         yield {"type": "done"}
         return
-    messages.append({"role": "assistant", "content": msg.get("content", "")})
-    yield {"type": "message", "content": msg.get("content", ""), "citations": [], "confidence": "n/a", "trust_notes": []}
+    content = msg.get("content", "")
+    refusal = _egress_refusal(ctx, content, [])
+    if refusal is not None:
+        messages.append({"role": "assistant", "content": refusal})
+        yield {"type": "message", "content": refusal, "citations": [],
+               "confidence": "high", "trust_notes": [_EGRESS_NOTE]}
+        yield {"type": "done"}
+        return
+    messages.append({"role": "assistant", "content": content})
+    yield {"type": "message", "content": content, "citations": [], "confidence": "n/a", "trust_notes": []}
     yield {"type": "done"}
 
 

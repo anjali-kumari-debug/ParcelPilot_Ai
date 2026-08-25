@@ -8,6 +8,7 @@ in code (see D3 in docs/DECISIONS.md). The model can never widen its own access.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 # Roles
@@ -75,3 +76,62 @@ def list_identities() -> list[dict]:
         {"login_id": k, "role": v.role, "account_id": v.account_id, "user_name": v.user_name}
         for k, v in MOCK_IDENTITIES.items()
     ]
+
+
+def _norm(s: str) -> str:
+    """Lowercase and strip everything but letters/digits (so 'ACCT-002' -> 'acct002')."""
+    return re.sub(r"[^a-z0-9]+", "", s.lower())
+
+
+def _account_terms() -> dict[str, list[str]]:
+    """Map each known account id -> distinctive normalized identifiers.
+
+    We use the account id plus the brand (first) token of the display name, e.g.
+    ACCT-002 -> ["acct002", "lumenworks"]. Generic descriptors like "logistics"
+    or "retail" are intentionally excluded to avoid false matches.
+    """
+    terms: dict[str, list[str]] = {}
+    for ctx in MOCK_IDENTITIES.values():
+        if ctx.account_id is None:
+            continue
+        brand = ctx.user_name.split()[0] if ctx.user_name else ""
+        toks = [t for t in (_norm(ctx.account_id), _norm(brand)) if t]
+        terms.setdefault(ctx.account_id, [])
+        for t in toks:
+            if t not in terms[ctx.account_id]:
+                terms[ctx.account_id].append(t)
+    return terms
+
+
+def _text_candidates(text: str) -> set[str]:
+    """Whole words plus adjacent-word pairs, normalized.
+
+    Matching against these (rather than raw substrings) makes the check robust to
+    spacing/punctuation variants like 'Lumen Works' or 'ACCT 002' while avoiding
+    mid-word false positives (e.g. 'axis' must not match inside 'taxis').
+    """
+    words = re.findall(r"[a-z0-9]+", text.lower())
+    candidates: set[str] = set(words)
+    for a, b in zip(words, words[1:]):
+        candidates.add(a + b)
+    return candidates
+
+
+def find_foreign_account_refs(ctx: AuthContext, text: str) -> list[str]:
+    """Return other accounts that a CUSTOMER explicitly referenced in `text`.
+
+    Access control is enforced in the data/tool layer, but a customer asking
+    about ANOTHER customer's account or contract must be refused outright rather
+    than letting the model answer from its own (scoped) sources and mislabel it.
+    Internal users may look across accounts, so this always returns empty for them.
+    """
+    if not ctx.is_customer or not text:
+        return []
+    candidates = _text_candidates(text)
+    found: list[str] = []
+    for acct_id, toks in _account_terms().items():
+        if acct_id == ctx.account_id:
+            continue
+        if any(tok in candidates for tok in toks):
+            found.append(acct_id)
+    return found
