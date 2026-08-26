@@ -10,6 +10,8 @@ embedding model (**fastembed**). **Ollama is off by default** (`ENABLE_OLLAMA=fa
 and is only for optional local use. A free Groq API key is the only credential
 needed to deploy.
 
+**Live app:** [https://parcelpilot-ai-f1vp.onrender.com/](https://parcelpilot-ai-f1vp.onrender.com/)
+
 ---
 
 ## What it does
@@ -46,6 +48,8 @@ Assessment write-ups:
 
 ## Deploy on Render (hosted URL)
 
+**Live:** [https://parcelpilot-ai-f1vp.onrender.com/](https://parcelpilot-ai-f1vp.onrender.com/)
+
 Connect the GitHub repo — Render builds the root `Dockerfile` (API + UI in one
 container, Groq chat, fastembed embeddings, **no Ollama**).
 
@@ -54,7 +58,7 @@ container, Groq chat, fastembed embeddings, **no Ollama**).
    or **Web Service** → connect the repo → runtime **Docker**.
 3. Add the secret:
    - `GROQ_API_KEY` = your key from [console.groq.com/keys](https://console.groq.com/keys)
-4. Deploy. Render gives you a `https://….onrender.com` URL.
+4. Deploy. Render assigns a `*.onrender.com` URL (this one is linked above).
 
 First boot ingests the workbook + PDFs (a minute or two). The free instance
 sleeps after idle (first request after that is a cold start). If the build or
