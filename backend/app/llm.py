@@ -19,8 +19,8 @@ VALID_PROVIDERS = ("ollama", "groq")
 
 def normalize_provider(provider: str | None) -> str:
     """Return a supported provider name, falling back to the configured default."""
-    p = (provider or config.LLM_PROVIDER or "ollama").lower()
-    return p if p in VALID_PROVIDERS else "ollama"
+    p = (provider or config.LLM_PROVIDER or "groq").lower()
+    return p if p in VALID_PROVIDERS else "groq"
 
 
 def chat(

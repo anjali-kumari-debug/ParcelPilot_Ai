@@ -4,8 +4,9 @@ set -euo pipefail
 OLLAMA_HOST="${OLLAMA_HOST:-http://ollama:11434}"
 CHAT_MODEL="${CHAT_MODEL:-llama3.1:8b}"
 EMBED_MODEL="${EMBED_MODEL:-nomic-embed-text}"
+LLM_PROVIDER="${LLM_PROVIDER:-groq}"
 
-echo "[entrypoint] Waiting for Ollama at ${OLLAMA_HOST} ..."
+echo "[entrypoint] Waiting for Ollama at ${OLLAMA_HOST} (embeddings) ..."
 until curl -sf "${OLLAMA_HOST}/api/tags" >/dev/null 2>&1; do
   sleep 2
 done
@@ -28,8 +29,17 @@ pull_model () {
   done
   echo "[entrypoint] WARN: could not confirm model ${model}; continuing anyway."
 }
+
+# Always need embeddings for document search / signals clustering.
 pull_model "${EMBED_MODEL}"
-pull_model "${CHAT_MODEL}"
+
+# Only pull the heavy local chat model when chat actually uses Ollama.
+if [ "${LLM_PROVIDER}" = "ollama" ]; then
+  echo "[entrypoint] LLM_PROVIDER=ollama — pulling local chat model ${CHAT_MODEL}"
+  pull_model "${CHAT_MODEL}"
+else
+  echo "[entrypoint] LLM_PROVIDER=${LLM_PROVIDER} — skipping local chat model pull (${CHAT_MODEL})"
+fi
 
 # Build the knowledge base on first boot (idempotent; safe to re-run).
 echo "[entrypoint] Ingesting workbook -> SQLite ..."

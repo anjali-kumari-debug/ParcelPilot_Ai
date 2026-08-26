@@ -83,15 +83,12 @@ def build_index() -> dict:
     documents: list[str] = []
     metadatas: list[dict] = []
 
-    per_file: list[dict] = []  # region agent log
     for filename, meta in SOURCE_META.items():
         pdf_path = config.DOC_DIR / filename
         if not pdf_path.exists():
             print(f"[warn] missing {pdf_path}")
-            per_file.append({"file": filename, "exists": False})  # region agent log
             continue
         pages = _extract_pages(pdf_path)
-        file_chunks_before = len(documents)  # region agent log
         for page_no, page_text in enumerate(pages, start=1):
             for c_idx, chunk in enumerate(_chunk(page_text, config.CHUNK_SIZE, config.CHUNK_OVERLAP)):
                 ids.append(f"{filename}::p{page_no}::c{c_idx}")
@@ -103,21 +100,6 @@ def build_index() -> dict:
                     "account_id": meta["account_id"],
                     "page": page_no,
                 })
-        # region agent log
-        per_file.append({
-            "file": filename,
-            "pages": len(pages),
-            "extracted_chars": sum(len(p) for p in pages),
-            "chunks": len(documents) - file_chunks_before,
-        })
-        # endregion
-
-    # region agent log
-    from .._debug import dlog
-    dlog("rag/ingest.py:build_index", "PDF ingest per-file breakdown",
-         {"doc_dir": str(config.DOC_DIR), "chunk_size": config.CHUNK_SIZE,
-          "total_chunks": len(documents), "per_file": per_file}, hypothesis="A")
-    # endregion
 
     if not documents:
         raise RuntimeError("No document chunks produced - check DOC_DIR / PDFs.")

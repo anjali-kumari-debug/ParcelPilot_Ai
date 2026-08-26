@@ -30,6 +30,11 @@ def _fn(schema: dict, handler, requires_confirmation: bool = False) -> ToolSpec:
                     handler=handler, requires_confirmation=requires_confirmation)
 
 
+def _opt_str(description: str) -> dict:
+    """Optional string. Groq rejects `null` unless the schema explicitly allows it."""
+    return {"type": ["string", "null"], "description": description}
+
+
 # --- handlers (adapt model args dict -> typed calls) ------------------------
 
 def _h_search(ctx, a):
@@ -68,7 +73,7 @@ REGISTRY: dict[str, ToolSpec] = {
                        "Returns passages tagged with an authority tier and citations.",
         "parameters": {"type": "object", "properties": {
             "query": {"type": "string", "description": "What to look up, in natural language."},
-            "account_id": {"type": "string", "description": "Optional: focus on one account's contract (internal use)."},
+            "account_id": _opt_str("Optional: focus on one account's contract (internal use)."),
         }, "required": ["query"]},
     }, _h_search),
 
@@ -76,8 +81,8 @@ REGISTRY: dict[str, ToolSpec] = {
         "name": "get_account",
         "description": "Get an account record (plan, status, CSM, whether it has a signed agreement).",
         "parameters": {"type": "object", "properties": {
-            "account_id": {"type": "string", "description": "Account id, e.g. ACCT-001. Optional for customers."},
-        }, "required": []},
+            "account_id": _opt_str("Account id, e.g. ACCT-001. Optional for customers."),
+        }},
     }, _h_get_account),
 
     "get_order": _fn({
@@ -90,11 +95,12 @@ REGISTRY: dict[str, ToolSpec] = {
 
     "list_tickets": _fn({
         "name": "list_tickets",
-        "description": "List support tickets for an account (optionally filter by status).",
+        "description": "List support tickets for an account (optionally filter by status). "
+                       "Internal users may omit account_id to list across all accounts.",
         "parameters": {"type": "object", "properties": {
-            "account_id": {"type": "string", "description": "Account id. Optional for customers."},
-            "status": {"type": "string", "description": "Optional status filter, e.g. open."},
-        }, "required": []},
+            "account_id": _opt_str("Account id. Omit to list all accounts (internal only)."),
+            "status": _opt_str("Optional status filter, e.g. open."),
+        }},
     }, _h_list_tickets),
 
     "cancellation_eligibility": _fn({
@@ -121,7 +127,7 @@ REGISTRY: dict[str, ToolSpec] = {
         "parameters": {"type": "object", "properties": {
             "ticket_id": {"type": "string"},
             "reason": {"type": "string", "description": "Why this needs escalation."},
-            "severity": {"type": "string", "description": "P1/P2/P3 if known."},
+            "severity": _opt_str("P1/P2/P3 if known."),
         }, "required": ["ticket_id", "reason"]},
     }, _h_escalate, requires_confirmation=True),
 
@@ -130,9 +136,9 @@ REGISTRY: dict[str, ToolSpec] = {
         "description": "Prepare a ticket update (status/assignee/note). Requires user confirmation.",
         "parameters": {"type": "object", "properties": {
             "ticket_id": {"type": "string"},
-            "status": {"type": "string"},
-            "assigned_to": {"type": "string"},
-            "note": {"type": "string"},
+            "status": _opt_str("New status, if changing."),
+            "assigned_to": _opt_str("Assignee, if changing."),
+            "note": _opt_str("Note to add."),
         }, "required": ["ticket_id"]},
     }, _h_update_ticket, requires_confirmation=True),
 
@@ -141,9 +147,9 @@ REGISTRY: dict[str, ToolSpec] = {
         "description": "Prepare a follow-up task. Requires user confirmation before creation.",
         "parameters": {"type": "object", "properties": {
             "title": {"type": "string"},
-            "due": {"type": "string", "description": "Optional due date/time."},
-            "ticket_id": {"type": "string", "description": "Optional related ticket."},
-            "account_id": {"type": "string", "description": "Account id (internal use)."},
+            "due": _opt_str("Optional due date/time."),
+            "ticket_id": _opt_str("Optional related ticket."),
+            "account_id": _opt_str("Account id (internal use)."),
         }, "required": ["title"]},
     }, _h_followup, requires_confirmation=True),
 }

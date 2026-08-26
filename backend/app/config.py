@@ -41,22 +41,21 @@ def now() -> datetime:
 
 
 # --- LLM provider -----------------------------------------------------------
-# Which chat backend to use by default: "ollama" (local, free, no key) or
-# "groq" (free cloud tier, needs GROQ_API_KEY). The UI can override this
-# per-request via a toggle, so this is just the fallback default.
-LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "ollama").lower()
+# Default chat backend: "groq" (cloud) or "ollama" (local). The UI can still
+# override per request. Embeddings always use Ollama (Groq is chat-only).
+LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "groq").lower()
 
-# --- Ollama (local LLM runtime) --------------------------------------------
+# --- Ollama (embeddings + optional local chat) -----------------------------
 # Inside docker-compose the backend reaches Ollama at host "ollama".
+# Used for RAG embeddings even when chat runs on Groq.
 OLLAMA_HOST: str = os.getenv("OLLAMA_HOST", "http://localhost:11434")
-# Primary chat model must support tool-calling. llama3.1 does; qwen2.5 is a fallback.
+# Local chat model (only pulled when LLM_PROVIDER=ollama). Tool-calling required.
 CHAT_MODEL: str = os.getenv("CHAT_MODEL", "llama3.1:8b")
 EMBED_MODEL: str = os.getenv("EMBED_MODEL", "nomic-embed-text")
 
-# --- Groq (free cloud LLM runtime) -----------------------------------------
+# --- Groq (default cloud chat) ---------------------------------------------
 # OpenAI-compatible API. Get a free key at https://console.groq.com/keys and
-# set GROQ_API_KEY in the environment (or backend/.env). Embeddings still come
-# from Ollama - Groq is chat-only. Default model supports tool-calling.
+# set GROQ_API_KEY in the environment (or backend/.env / repo-root .env).
 GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
 GROQ_BASE_URL: str = os.getenv("GROQ_BASE_URL", "https://api.groq.com")
 GROQ_CHAT_MODEL: str = os.getenv("GROQ_CHAT_MODEL", "openai/gpt-oss-120b")

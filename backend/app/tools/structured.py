@@ -133,19 +133,6 @@ def cancellation_eligibility(ctx: AuthContext, order_id: str) -> dict:
                        "reason": f"After {FREE_CANCEL_WINDOW_MIN} min: INR {DEFAULT_CANCEL_FEE_INR} "
                                  f"unless the customer agreement waives it."}
 
-    # region agent log
-    from .._debug import dlog
-    dlog("tools/structured.py:cancellation_eligibility", "cancellation calc",
-         {"order_id": order_id, "status": status,
-          "booked_at": order.get("booked_at"),
-          "cancellation_requested_at": order.get("cancellation_requested_at"),
-          "mins_booking_to_request": mins_booking_to_request,
-          "within_free_window": within_free_window,
-          "default_fee_inr": default.get("fee_inr"),
-          "has_contract": has_contract,
-          "contract_may_override": has_contract and default.get("fee_inr") not in (0, None)},
-         hypothesis="D")
-    # endregion
     return {
         "order_id": order_id,
         "account_id": order.get("account_id"),
@@ -195,18 +182,6 @@ def service_credit_check(ctx: AuthContext, order_id: str) -> dict:
     acct = _fetch_account(order.get("account_id")) or {}
     has_contract = bool(acct.get("contract_file"))
 
-    # region agent log
-    from .._debug import dlog
-    dlog("tools/structured.py:service_credit_check", "service credit calc",
-         {"order_id": order_id, "pickup_window_end": order.get("pickup_window_end"),
-          "pickup_actual_at": order.get("pickup_actual_at"),
-          "measured_against": "actual" if actual else "snapshot",
-          "delay_min": delay_min, "carrier_fault": carrier_fault,
-          "customer_fault": customer_fault, "fee": fee,
-          "eligible_default": eligible_default,
-          "default_credit": default_credit if eligible_default else 0,
-          "has_contract": has_contract}, hypothesis="D")
-    # endregion
     return {
         "order_id": order_id,
         "account_id": order.get("account_id"),

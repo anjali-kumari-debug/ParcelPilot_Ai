@@ -77,15 +77,6 @@ def search_documents(
     conflict_warning = (
         "deprecated" in tiers_present and "current" in tiers_present
     )
-    # region agent log
-    from .._debug import dlog
-    dlog("tools/documents.py:search_documents", "RAG query result",
-         {"query": query, "role": ctx.role, "account_id": ctx.account_id,
-          "where": where, "hit_count": len(hits),
-          "sources": [h.get("source_file") for h in hits],
-          "tiers_present": tiers_present,
-          "top_distances": [h.get("distance") for h in hits[:5]]}, hypothesis="A")
-    # endregion
     return {
         "query": query,
         "count": len(hits),

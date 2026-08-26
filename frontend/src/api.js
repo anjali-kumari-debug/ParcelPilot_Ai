@@ -19,6 +19,11 @@ export async function getSignals(loginId) {
   return res.json();
 }
 
+export async function getActions(loginId) {
+  const res = await fetch(`/api/actions?login_id=${encodeURIComponent(loginId)}`);
+  return res.json();
+}
+
 export async function getProviders() {
   const res = await fetch("/api/providers");
   return res.json();

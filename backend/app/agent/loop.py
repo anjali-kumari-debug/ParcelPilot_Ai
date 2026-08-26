@@ -135,24 +135,19 @@ def run(ctx: AuthContext, messages: list[dict], provider: str | None = None) -> 
         try:
             msg = llm.chat(messages, tools=tools, provider=provider)
         except Exception as exc:  # network / model error
-            # region agent log
-            from .._debug import dlog
-            dlog("agent/loop.py:run", "LLM call failed",
-                 {"provider": provider, "step": _step, "error": repr(exc)}, hypothesis="E")
-            # endregion
             yield {"type": "error", "message": f"Model call failed: {exc}"}
             yield {"type": "done"}
             return
 
         tool_calls = msg.get("tool_calls") or []
         # region agent log
-        from .._debug import dlog
-        dlog("agent/loop.py:run", "LLM step",
-             {"provider": provider, "step": _step,
-              "tool_names": [c.get("function", {}).get("name") for c in tool_calls],
-              "did_search": did_search, "contract_override_flagged": contract_override_flagged,
-              "final_content_len": len(msg.get("content") or "") if not tool_calls else None},
-             hypothesis="C")
+        from .._debug import dlog_cc
+        dlog_cc("agent/loop.py:run:llm_step", "LLM step tools vs prose",
+                {"provider": provider, "step": _step,
+                 "tool_names": [c.get("function", {}).get("name") for c in tool_calls],
+                 "no_tools": not tool_calls,
+                 "content_preview": (msg.get("content") or "")[:160]},
+                hypothesis="A,D,E")
         # endregion
         # Record the assistant turn (with any tool_calls) in the transcript.
         assistant_entry: dict[str, Any] = {"role": "assistant", "content": msg.get("content", "")}
@@ -239,8 +234,23 @@ def run(ctx: AuthContext, messages: list[dict], provider: str | None = None) -> 
             else:
                 messages.append(_tool_msg(name, result))
                 yield {"type": "tool_result", "name": name, "result": result}
+            # region agent log
+            from .._debug import dlog_cc
+            dlog_cc("agent/loop.py:run:tool", "action tool outcome",
+                    {"name": name, "requires_confirmation": spec.requires_confirmation,
+                     "has_error": isinstance(result, dict) and "error" in result,
+                     "error": (result or {}).get("error") if isinstance(result, dict) else None,
+                     "pending_set": pending is not None},
+                    hypothesis="B,D")
+            # endregion
 
         if pending is not None:
+            # region agent log
+            from .._debug import dlog_cc
+            dlog_cc("agent/loop.py:run:pending", "emitting pending_action",
+                    {"action_type": pending.get("action_type"),
+                     "target_id": pending.get("target_id")}, hypothesis="C")
+            # endregion
             yield {"type": "pending_action", "action": pending}
             yield {"type": "done"}
             return

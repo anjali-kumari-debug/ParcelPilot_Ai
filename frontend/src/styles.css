@@ -66,13 +66,45 @@ body {
 .main { display: flex; flex-direction: column; min-width: 0; }
 .messages { flex: 1; overflow-y: auto; padding: 24px; display: flex; flex-direction: column; gap: 16px; }
 .empty { color: var(--muted); text-align: center; margin: auto; }
+.empty-note { color: var(--muted); font-size: 0.9rem; margin: 0.5rem 0 1rem; }
 .msg { max-width: 780px; }
 .msg.user { align-self: flex-end; }
 .msg-role { font-size: 11px; color: var(--muted); margin-bottom: 4px; }
-.msg-body { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; white-space: pre-wrap; line-height: 1.5; }
+.msg-body { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; white-space: pre-wrap; line-height: 1.55; }
+.msg-body-md { white-space: normal; }
 .msg.user .msg-body { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
 .msg.system .msg-body { background: transparent; border-style: dashed; color: var(--muted); font-size: 13px; }
 .thinking { color: var(--muted); font-style: italic; }
+
+/* Markdown inside agent messages */
+.md > *:first-child { margin-top: 0; }
+.md > *:last-child { margin-bottom: 0; }
+.md p { margin: 0 0 0.7em; }
+.md p:last-child { margin-bottom: 0; }
+.md strong { font-weight: 700; color: #fff; }
+.md em { font-style: italic; color: var(--accent-2); }
+.md ul, .md ol { margin: 0.4em 0 0.8em; padding-left: 1.35em; }
+.md li { margin: 0.25em 0; }
+.md li::marker { color: var(--accent-2); }
+.md code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.9em;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.1em 0.35em;
+}
+.md pre {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  overflow-x: auto;
+  margin: 0.6em 0;
+}
+.md pre code { background: none; border: none; padding: 0; }
+.md h1, .md h2, .md h3 { font-size: 1em; font-weight: 700; margin: 0.8em 0 0.4em; color: #fff; }
+.md a { color: var(--accent-2); }
 
 .tool-trace { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; }
 .tool-chip { display: inline-flex; align-items: center; gap: 6px; background: var(--panel-2); border: 1px solid var(--border); border-radius: 999px; padding: 4px 10px; font-size: 12px; color: var(--muted); }

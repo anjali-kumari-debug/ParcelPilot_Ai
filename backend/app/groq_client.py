@@ -135,15 +135,6 @@ def chat(
         payload["tools"] = tools
         payload["tool_choice"] = "auto"
 
-    # region agent log
-    from ._debug import dlog
-    _oai = payload["messages"]
-    dlog("groq_client.py:chat", "groq request shape",
-         {"model": model, "n_messages": len(_oai),
-          "n_tool_role_msgs": sum(1 for m in _oai if m.get("role") == "tool"),
-          "n_assistant_tool_calls": sum(len(m.get("tool_calls", [])) for m in _oai if m.get("role") == "assistant"),
-          "has_tools": bool(tools)}, hypothesis="B")
-    # endregion
     headers = {"Authorization": f"Bearer {config.GROQ_API_KEY}"}
     url = f"{config.GROQ_BASE_URL}{_ENDPOINT}"
     with httpx.Client(timeout=_TIMEOUT) as client:
@@ -153,20 +144,19 @@ def chat(
             # Transient rate limit: wait the provider-specified interval and retry.
             if resp.status_code == 429 and attempt < _MAX_RETRIES - 1:
                 wait = _retry_after_seconds(resp, attempt)
-                # region agent log
-                dlog("groq_client.py:chat", "groq 429 - backing off and retrying",
-                     {"attempt": attempt, "wait_s": wait, "body": (resp.text or "")[:300]},
-                     hypothesis="E")
-                # endregion
                 time.sleep(wait)
                 continue
 
-            # region agent log
             if resp.status_code >= 400:
-                dlog("groq_client.py:chat", "groq HTTP error",
-                     {"status": resp.status_code, "attempt": attempt,
-                      "body": resp.text[:600]}, hypothesis="E")
-            # endregion
+                try:
+                    err = (resp.json().get("error") or {}).get("message") or resp.text
+                except Exception:
+                    err = resp.text or f"HTTP {resp.status_code}"
+                raise httpx.HTTPStatusError(
+                    f"Groq {resp.status_code}: {err}",
+                    request=resp.request,
+                    response=resp,
+                )
             resp.raise_for_status()
             data = resp.json()
             break

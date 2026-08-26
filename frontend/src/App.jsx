@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
-import { getIdentities, sendChat, confirmAction, getSignals, getProviders } from "./api.js";
+import ReactMarkdown from "react-markdown";
+import { getIdentities, sendChat, confirmAction, getSignals, getActions, getProviders } from "./api.js";
 
 const TOOL_LABELS = {
   search_documents: "Document search",
@@ -91,12 +92,29 @@ function Citations({ citations }) {
   );
 }
 
+function MessageBody({ role, content }) {
+  if (!content) {
+    return role === "assistant" ? <span className="thinking">working…</span> : null;
+  }
+  // Agent replies are markdown (bold, lists, etc.); user/system stay plain text.
+  if (role === "assistant") {
+    return (
+      <div className="md">
+        <ReactMarkdown>{content}</ReactMarkdown>
+      </div>
+    );
+  }
+  return content;
+}
+
 function Message({ m }) {
   return (
     <div className={`msg ${m.role}`}>
       <div className="msg-role">{m.role === "user" ? "You" : m.role === "assistant" ? "Agent" : "System"}</div>
       <ToolTrace tools={m.tools} />
-      <div className="msg-body">{m.content || (m.role === "assistant" ? <span className="thinking">working…</span> : "")}</div>
+      <div className={`msg-body ${m.role === "assistant" ? "msg-body-md" : ""}`}>
+        <MessageBody role={m.role} content={m.content} />
+      </div>
       {m.confidence && m.confidence !== "n/a" ? (
         <div className={`confidence ${m.confidence}`}>confidence: {m.confidence}</div>
       ) : null}
@@ -127,10 +145,20 @@ function ConfirmModal({ action, onConfirm, onCancel, busy }) {
 
 function SignalsPanel({ loginId }) {
   const [data, setData] = useState(null);
+  const [actions, setActions] = useState([]);
   const [loading, setLoading] = useState(false);
   const load = async () => {
     setLoading(true);
-    try { setData(await getSignals(loginId)); } finally { setLoading(false); }
+    try {
+      const [signals, actionLog] = await Promise.all([
+        getSignals(loginId),
+        getActions(loginId),
+      ]);
+      setData(signals);
+      setActions(actionLog.actions || []);
+    } finally {
+      setLoading(false);
+    }
   };
   useEffect(() => { load(); }, []);
   if (loading && !data) return <div className="panel">Loading signals…</div>;
@@ -182,6 +210,27 @@ function SignalsPanel({ loginId }) {
             <div key={i} className="cluster">{h.account_id}: {h.open_tickets} open tickets</div>
           ))}
         </>
+      )}
+
+      <h3>Confirmed actions (audit log)</h3>
+      {actions.length === 0 ? (
+        <p className="empty-note">No escalations, ticket updates, or follow-ups confirmed yet.</p>
+      ) : (
+        <table className="tbl">
+          <thead><tr><th>ID</th><th>Type</th><th>Account</th><th>Target</th><th>By</th><th>When</th></tr></thead>
+          <tbody>
+            {actions.map((a) => (
+              <tr key={a.action_id}>
+                <td>{a.action_id}</td>
+                <td>{a.action_type}</td>
+                <td>{a.account_id || "—"}</td>
+                <td>{a.target_id || "—"}</td>
+                <td>{a.created_by}</td>
+                <td>{a.created_at}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       )}
     </div>
   );
@@ -259,8 +308,14 @@ export default function App() {
         return { ...m, tools };
       });
     } else if (ev.type === "pending_action") {
+      // #region agent log
+      fetch('http://127.0.0.1:7905/ingest/d67efbcf-c69f-4fbc-b761-93d21b1cff09',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'cc4176'},body:JSON.stringify({sessionId:'cc4176',location:'App.jsx:handleEvent',message:'UI received pending_action',data:{action_type:ev.action?.action_type,target_id:ev.action?.target_id},timestamp:Date.now(),hypothesisId:'C',runId:'run1'})}).catch(()=>{});
+      // #endregion
       setPending(ev.action);
     } else if (ev.type === "message") {
+      // #region agent log
+      fetch('http://127.0.0.1:7905/ingest/d67efbcf-c69f-4fbc-b761-93d21b1cff09',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'cc4176'},body:JSON.stringify({sessionId:'cc4176',location:'App.jsx:handleEvent',message:'UI received message (no modal)',data:{content_preview:(ev.content||'').slice(0,120),confidence:ev.confidence},timestamp:Date.now(),hypothesisId:'A',runId:'run1'})}).catch(()=>{});
+      // #endregion
       updateAssistant((m) => ({ ...m, content: ev.content, citations: ev.citations, confidence: ev.confidence, notes: ev.trust_notes }));
     } else if (ev.type === "action_executed") {
       setMessages((prev) => [...prev, { id: "s" + Date.now(), role: "system", content: ev.result?.message || "Action executed.", tools: [] }]);
