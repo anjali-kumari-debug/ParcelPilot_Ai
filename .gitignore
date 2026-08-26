@@ -8,6 +8,9 @@ venv/
 backend/state/
 state/
 
+# E2E prompt test transcripts
+backend/tests/results/
+
 # Node / frontend
 node_modules/
 frontend/dist/

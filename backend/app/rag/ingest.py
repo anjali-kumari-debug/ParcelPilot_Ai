@@ -1,6 +1,6 @@
 """Build the document knowledge base (RAG index).
 
-Pipeline: PDF -> text -> chunks -> embeddings (Ollama nomic-embed-text) -> Chroma.
+Pipeline: PDF -> text -> chunks -> embeddings (fastembed by default) -> Chroma.
 
 Each chunk carries metadata that the trust layer relies on:
   * source_file    - which PDF it came from (for citations)
@@ -19,7 +19,7 @@ import chromadb
 from pypdf import PdfReader
 
 from .. import config
-from ..ollama_client import embed_texts
+from ..embeddings import embed_texts
 
 COLLECTION_NAME = "parcelpilot_docs"
 

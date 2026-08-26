@@ -68,7 +68,7 @@ def _egress_refusal(ctx: AuthContext, content: str, retrieved: list[dict]) -> st
 
 
 def _parse_args(raw: Any) -> dict:
-    """Ollama usually returns a dict; be tolerant of a JSON string (repair once)."""
+    """Be tolerant of a JSON string (repair once)."""
     if isinstance(raw, dict):
         return raw
     if isinstance(raw, str):
@@ -96,7 +96,7 @@ _OVERRIDE_QUERIES = {
 def run(ctx: AuthContext, messages: list[dict], provider: str | None = None) -> Iterator[dict]:
     """Drive the tool-calling loop until a final answer or a pending action.
 
-    `provider` selects the LLM backend ("ollama" local or "groq" cloud);
+    `provider` is unused (chat is always Groq).
     None falls back to the configured default.
     """
     # Access-control guard (defence in depth): if a customer's request names

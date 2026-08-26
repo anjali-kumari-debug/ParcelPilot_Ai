@@ -1,18 +1,14 @@
-# ParcelPilot AI Support - full stack.
+# ParcelPilot AI Support - local stack.
 #
+# Default (no Ollama):
 #   docker compose up --build
 #
-# Chat defaults to Groq (set GROQ_API_KEY in a repo-root .env).
-# Ollama still runs for embeddings / document search only (not the chat model
-# unless you set LLM_PROVIDER=ollama).
-#
-# Services:
-#   ollama   - embeddings runtime (nomic-embed-text); optional local chat
-#   backend  - FastAPI agent API
-#   frontend - React app served by nginx, proxies /api to the backend
+# Optional local Ollama chat:
+#   ENABLE_OLLAMA=true LLM_PROVIDER=ollama docker compose --profile ollama up --build
 
 services:
   ollama:
+    profiles: ["ollama"]
     image: ollama/ollama:latest
     ports:
       - "11434:11434"
@@ -26,25 +22,20 @@ services:
 
   backend:
     build: ./backend
-    depends_on:
-      - ollama
     environment:
-      OLLAMA_HOST: http://ollama:11434
+      ENABLE_OLLAMA: ${ENABLE_OLLAMA:-false}
+      LLM_PROVIDER: ${LLM_PROVIDER:-groq}
+      EMBED_PROVIDER: ${EMBED_PROVIDER:-fastembed}
+      OLLAMA_HOST: ${OLLAMA_HOST:-http://ollama:11434}
       CHAT_MODEL: ${CHAT_MODEL:-llama3.1:8b}
       EMBED_MODEL: ${EMBED_MODEL:-nomic-embed-text}
-      # Default chat backend: groq (cloud). Use ollama for fully local chat.
-      LLM_PROVIDER: ${LLM_PROVIDER:-groq}
-      # Free cloud LLM (Groq). Set GROQ_API_KEY in a repo-root .env.
       GROQ_API_KEY: ${GROQ_API_KEY:-}
       GROQ_CHAT_MODEL: ${GROQ_CHAT_MODEL:-openai/gpt-oss-120b}
       DOC_DIR: /data/docs
       STATE_DIR: /data/state
     volumes:
-      # Mount the given data pack read-only, and a writable state volume.
       - "./Doc Folder:/data/docs:ro"
       - backend_state:/data/state
-      # TEMPORARY: debug-session logs to host file. Remove after debugging.
-      - ./.cursor:/app/.cursor
     ports:
       - "8000:8000"
 

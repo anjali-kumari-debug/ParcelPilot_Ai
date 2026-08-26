@@ -13,7 +13,7 @@ from __future__ import annotations
 from typing import Any
 
 from ..auth import AuthContext
-from ..ollama_client import embed_texts
+from ..embeddings import embed_texts
 from ..rag.ingest import get_client, COLLECTION_NAME
 from .. import config
 

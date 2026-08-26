@@ -308,14 +308,8 @@ export default function App() {
         return { ...m, tools };
       });
     } else if (ev.type === "pending_action") {
-      // #region agent log
-      fetch('http://127.0.0.1:7905/ingest/d67efbcf-c69f-4fbc-b761-93d21b1cff09',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'cc4176'},body:JSON.stringify({sessionId:'cc4176',location:'App.jsx:handleEvent',message:'UI received pending_action',data:{action_type:ev.action?.action_type,target_id:ev.action?.target_id},timestamp:Date.now(),hypothesisId:'C',runId:'run1'})}).catch(()=>{});
-      // #endregion
       setPending(ev.action);
     } else if (ev.type === "message") {
-      // #region agent log
-      fetch('http://127.0.0.1:7905/ingest/d67efbcf-c69f-4fbc-b761-93d21b1cff09',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'cc4176'},body:JSON.stringify({sessionId:'cc4176',location:'App.jsx:handleEvent',message:'UI received message (no modal)',data:{content_preview:(ev.content||'').slice(0,120),confidence:ev.confidence},timestamp:Date.now(),hypothesisId:'A',runId:'run1'})}).catch(()=>{});
-      // #endregion
       updateAssistant((m) => ({ ...m, content: ev.content, citations: ev.citations, confidence: ev.confidence, notes: ev.trust_notes }));
     } else if (ev.type === "action_executed") {
       setMessages((prev) => [...prev, { id: "s" + Date.now(), role: "system", content: ev.result?.message || "Action executed.", tools: [] }]);

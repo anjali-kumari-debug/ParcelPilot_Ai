@@ -1,0 +1,25 @@
+# Render Blueprint — GitHub → public URL.
+# ENABLE_OLLAMA is false: Groq chat + fastembed, no Ollama.
+# https://render.com/docs/blueprint-spec
+#
+# After connecting the repo, set GROQ_API_KEY in the dashboard
+# (Environment → Add Secret). Render then assigns *.onrender.com.
+
+services:
+  - type: web
+    name: parcelpilot
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /api/health
+    envVars:
+      - key: GROQ_API_KEY
+        sync: false
+      - key: ENABLE_OLLAMA
+        value: "false"
+      - key: LLM_PROVIDER
+        value: groq
+      - key: EMBED_PROVIDER
+        value: fastembed
+      - key: PYTHONUNBUFFERED
+        value: "1"

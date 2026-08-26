@@ -7,12 +7,15 @@ Each session holds the running transcript and any pending (unconfirmed) action.
 from __future__ import annotations
 
 import json
+import os
 import uuid
+from pathlib import Path
 from typing import Any, Iterator
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse, JSONResponse
+from fastapi.responses import StreamingResponse, JSONResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from . import auth
@@ -20,7 +23,6 @@ from . import config
 from . import llm
 from .agent import loop as agent_loop
 from .agent.prompts import system_prompt
-from .ollama_client import health as ollama_health
 from .groq_client import health as groq_health
 from .proactive import signals as proactive
 from .db import get_conn
@@ -40,7 +42,7 @@ class ChatRequest(BaseModel):
     login_id: str
     message: str
     session_id: str | None = None
-    provider: str | None = None  # "ollama" (local) or "groq" (cloud); None -> default
+    provider: str | None = None  # "groq" or, if ENABLE_OLLAMA=true, "ollama"
 
 
 class ConfirmRequest(BaseModel):
@@ -55,21 +57,36 @@ def _sse(event: dict) -> str:
 
 @app.get("/api/health")
 def health() -> dict:
-    return {"status": "ok", "ollama": ollama_health(), "groq": groq_health()}
+    ollama_ok = False
+    if config.ENABLE_OLLAMA:
+        from .ollama_client import health as ollama_health
+        ollama_ok = ollama_health()
+    return {
+        "status": "ok",
+        "groq": groq_health(),
+        "ollama": ollama_ok,
+        "enable_ollama": config.ENABLE_OLLAMA,
+        "embed": "ollama" if (config.ENABLE_OLLAMA and config.EMBED_PROVIDER == "ollama") else "fastembed",
+    }
 
 
 @app.get("/api/providers")
 def providers() -> dict:
-    """Which LLM backends are usable, plus the configured default (for the UI toggle)."""
-    return {
-        "default": config.LLM_PROVIDER,
-        "providers": [
-            {"id": "ollama", "label": "Local (Ollama)", "available": ollama_health(),
-             "model": config.CHAT_MODEL},
-            {"id": "groq", "label": "Cloud (Groq)", "available": groq_health(),
-             "model": config.GROQ_CHAT_MODEL},
-        ],
-    }
+    """LLM backends the UI may offer. Ollama is listed only when ENABLE_OLLAMA=true."""
+    list_ = [
+        {"id": "groq", "label": "Cloud (Groq)", "available": groq_health(),
+         "model": config.GROQ_CHAT_MODEL},
+    ]
+    default = "groq"
+    if config.ENABLE_OLLAMA:
+        from .ollama_client import health as ollama_health
+        list_.insert(0, {
+            "id": "ollama", "label": "Local (Ollama)", "available": ollama_health(),
+            "model": config.CHAT_MODEL,
+        })
+        if config.LLM_PROVIDER == "ollama":
+            default = "ollama"
+    return {"default": default, "providers": list_}
 
 
 @app.get("/api/identities")
@@ -164,3 +181,35 @@ def actions_log(login_id: str):
     with get_conn() as conn:
         rows = conn.execute("SELECT * FROM actions ORDER BY created_at DESC").fetchall()
     return {"actions": [{k: r[k] for k in r.keys()} for r in rows]}
+
+
+# --- Optional SPA (Render / single-container deploys) ---------------------
+# When STATIC_DIR points at a Vite build, FastAPI serves the React UI from the
+# same origin as /api. Local `uvicorn` without a build is unchanged.
+def _mount_frontend() -> None:
+    raw = os.getenv("STATIC_DIR", "").strip()
+    if not raw:
+        return
+    static = Path(raw)
+    index = static / "index.html"
+    if not index.is_file():
+        return
+    assets = static / "assets"
+    if assets.is_dir():
+        app.mount("/assets", StaticFiles(directory=str(assets)), name="assets")
+
+    @app.get("/{full_path:path}")
+    def spa(full_path: str):
+        if full_path.startswith("api/") or full_path == "api":
+            return JSONResponse({"error": "not_found"}, status_code=404)
+        candidate = (static / full_path).resolve()
+        try:
+            candidate.relative_to(static.resolve())
+        except ValueError:
+            return JSONResponse({"error": "not_found"}, status_code=404)
+        if candidate.is_file():
+            return FileResponse(candidate)
+        return FileResponse(index)
+
+
+_mount_frontend()

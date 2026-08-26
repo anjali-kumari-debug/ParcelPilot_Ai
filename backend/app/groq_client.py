@@ -1,18 +1,14 @@
 """Thin client for Groq's OpenAI-compatible chat API (a free cloud LLM).
 
-This is the "cloud" alternative to the local Ollama runtime. It exposes a
-`chat()` with the SAME return shape as `ollama_client.chat()` so the agent loop
-does not care which provider produced the message.
-
-Groq speaks the OpenAI wire format, which differs from Ollama in two ways the
-agent loop cares about:
+It exposes `chat()` returning a message dict the agent loop can consume
+(`content` plus optional `tool_calls`). Groq speaks the OpenAI wire format:
 
   * tool-call responses (`role: "tool"`) must carry a `tool_call_id`, and
   * assistant tool-calls must carry an `id` + `type: "function"`.
 
-Our transcript is stored in the simpler Ollama shape, so we normalise it to the
+Our transcript is stored in a simple role/content shape, so we normalise it to the
 OpenAI shape at send time (see `_to_openai_messages`). Embeddings are NOT
-provided by Groq; RAG keeps using Ollama's `nomic-embed-text`.
+provided by Groq; RAG uses in-process fastembed.
 """
 
 from __future__ import annotations
@@ -55,7 +51,7 @@ def _retry_after_seconds(resp: httpx.Response, attempt: int) -> float:
 
 
 def _to_openai_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Convert Ollama-style transcript messages to the OpenAI/Groq shape.
+    """Convert stored transcript messages to the OpenAI/Groq shape.
 
     The key fix-ups: synthesise stable ids for assistant tool-calls and attach
     the matching `tool_call_id` to each following `role: "tool"` message (paired
@@ -114,7 +110,7 @@ def chat(
 ) -> dict[str, Any]:
     """Single non-streaming chat call. Returns the assistant `message` dict.
 
-    The returned dict matches Ollama's shape closely enough for the agent loop:
+    The returned dict is the shape the agent loop expects:
     it may contain `tool_calls`, each with a `function.name` and (string)
     `function.arguments`, which the loop's `_parse_args` already tolerates.
     """

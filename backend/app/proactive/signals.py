@@ -20,7 +20,7 @@ import numpy as np
 
 from ..db import get_conn
 from ..util import parse_dt, minutes_between
-from ..ollama_client import embed_texts
+from ..embeddings import embed_texts
 from .. import config
 
 # First-response targets in minutes. Contract overrides take precedence.

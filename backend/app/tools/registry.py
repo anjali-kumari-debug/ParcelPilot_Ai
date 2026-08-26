@@ -156,7 +156,7 @@ REGISTRY: dict[str, ToolSpec] = {
 
 
 def tool_schemas() -> list[dict]:
-    """All tool schemas in the format Ollama expects."""
+    """All tool schemas advertised to the chat model."""
     return [spec.schema for spec in REGISTRY.values()]
 
 

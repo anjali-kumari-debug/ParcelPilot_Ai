@@ -1,0 +1,15 @@
+.git
+.cursor
+.venv
+backend/.venv
+backend/state
+backend/tests/results
+frontend/node_modules
+frontend/dist
+**/__pycache__
+**/*.pyc
+**/.DS_Store
+.env
+*.md
+.dockerignore
+docker-compose.yml

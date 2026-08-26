@@ -40,16 +40,21 @@ def now() -> datetime:
     return SNAPSHOT_TIME
 
 
-# --- LLM provider -----------------------------------------------------------
-# Default chat backend: "groq" (cloud) or "ollama" (local). The UI can still
-# override per request. Embeddings always use Ollama (Groq is chat-only).
-LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "groq").lower()
+def _env_flag(name: str, default: str = "false") -> bool:
+    return os.getenv(name, default).strip().lower() in ("1", "true", "yes", "on")
 
-# --- Ollama (embeddings + optional local chat) -----------------------------
-# Inside docker-compose the backend reaches Ollama at host "ollama".
-# Used for RAG embeddings even when chat runs on Groq.
+
+# --- LLM / embeddings -------------------------------------------------------
+# Hosted (Render) and default local: Groq chat + in-process fastembed.
+# Local Ollama is opt-in: ENABLE_OLLAMA=true (then LLM_PROVIDER / EMBED_PROVIDER
+# may be set to "ollama"). When the flag is false those values are ignored.
+ENABLE_OLLAMA: bool = _env_flag("ENABLE_OLLAMA", "false")
+LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "groq").lower()
+EMBED_PROVIDER: str = os.getenv("EMBED_PROVIDER", "fastembed").lower()
+FASTEMBED_MODEL: str = os.getenv("FASTEMBED_MODEL", "BAAI/bge-small-en-v1.5")
+
+# Ollama (used only when ENABLE_OLLAMA=true)
 OLLAMA_HOST: str = os.getenv("OLLAMA_HOST", "http://localhost:11434")
-# Local chat model (only pulled when LLM_PROVIDER=ollama). Tool-calling required.
 CHAT_MODEL: str = os.getenv("CHAT_MODEL", "llama3.1:8b")
 EMBED_MODEL: str = os.getenv("EMBED_MODEL", "nomic-embed-text")
 
