@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { getIdentities, sendChat, confirmAction, getSignals } from "./api.js";
+import { getIdentities, sendChat, confirmAction, getSignals, getProviders } from "./api.js";
 
 const TOOL_LABELS = {
   search_documents: "Document search",
@@ -187,6 +187,29 @@ function SignalsPanel({ loginId }) {
   );
 }
 
+function ModelToggle({ providers, provider, onChange, disabled }) {
+  if (!providers || providers.length === 0) return null;
+  return (
+    <div className="model-toggle">
+      <div className="ex-title">Model</div>
+      <div className="seg">
+        {providers.map((p) => (
+          <button
+            key={p.id}
+            className={`seg-btn ${provider === p.id ? "active" : ""}`}
+            disabled={disabled || !p.available}
+            title={p.available ? p.model : `${p.label} unavailable`}
+            onClick={() => onChange(p.id)}
+          >
+            {p.label}
+            {!p.available ? <span className="seg-off">off</span> : null}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function App() {
   const [identities, setIdentities] = useState([]);
   const [identity, setIdentity] = useState(null);
@@ -196,10 +219,22 @@ export default function App() {
   const [busy, setBusy] = useState(false);
   const [pending, setPending] = useState(null);
   const [tab, setTab] = useState("chat");
+  const [providers, setProviders] = useState([]);
+  const [provider, setProvider] = useState(null);
   const scroller = useRef(null);
   const currentId = useRef(null);
 
   useEffect(() => { getIdentities().then(setIdentities); }, []);
+  useEffect(() => {
+    getProviders().then((data) => {
+      const list = data.providers || [];
+      setProviders(list);
+      // Prefer the configured default if usable, else the first available provider.
+      const usable = list.filter((p) => p.available);
+      const preferred = usable.find((p) => p.id === data.default) || usable[0] || list[0];
+      if (preferred) setProvider(preferred.id);
+    });
+  }, []);
   useEffect(() => {
     if (scroller.current) scroller.current.scrollTop = scroller.current.scrollHeight;
   }, [messages]);
@@ -246,7 +281,7 @@ export default function App() {
     currentId.current = asstId;
     setMessages((prev) => [...prev, userMsg, { id: asstId, role: "assistant", content: "", tools: [], citations: [] }]);
     try {
-      await sendChat({ loginId: identity.login_id, message: q, sessionId }, handleEvent);
+      await sendChat({ loginId: identity.login_id, message: q, sessionId, provider }, handleEvent);
     } catch (e) {
       updateAssistant((m) => ({ ...m, content: "Network error: " + e.message }));
     } finally {
@@ -286,6 +321,7 @@ export default function App() {
             <button className={tab === "signals" ? "active" : ""} onClick={() => setTab("signals")}>Proactive signals</button>
           )}
         </nav>
+        <ModelToggle providers={providers} provider={provider} onChange={setProvider} disabled={busy} />
         <div className="examples">
           <div className="ex-title">Try asking</div>
           {EXAMPLES.map((e, i) => (

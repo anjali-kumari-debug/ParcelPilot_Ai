@@ -30,12 +30,22 @@ services:
       OLLAMA_HOST: http://ollama:11434
       CHAT_MODEL: ${CHAT_MODEL:-llama3.1:8b}
       EMBED_MODEL: ${EMBED_MODEL:-nomic-embed-text}
+      # Default LLM backend when the UI doesn't specify one ("ollama" or "groq").
+      LLM_PROVIDER: ${LLM_PROVIDER:-ollama}
+      # Free cloud LLM (Groq). Set GROQ_API_KEY in a repo-root .env to enable it.
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      GROQ_CHAT_MODEL: ${GROQ_CHAT_MODEL:-openai/gpt-oss-120b}
       DOC_DIR: /data/docs
       STATE_DIR: /data/state
+      # TEMPORARY: debug-session log path (bind-mounted below). Remove after debugging.
+      DEBUG_LOG_PATH: /app/.cursor/debug-ebac8f.log
+      DEBUG_RUN_ID: post-fix
     volumes:
       # Mount the given data pack read-only, and a writable state volume.
       - "./Doc Folder:/data/docs:ro"
       - backend_state:/data/state
+      # TEMPORARY: expose workspace .cursor dir so debug logs land on the host file.
+      - ./.cursor:/app/.cursor
     ports:
       - "8000:8000"
 

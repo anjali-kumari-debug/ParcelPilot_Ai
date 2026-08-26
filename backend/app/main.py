@@ -16,9 +16,12 @@ from fastapi.responses import StreamingResponse, JSONResponse
 from pydantic import BaseModel
 
 from . import auth
+from . import config
+from . import llm
 from .agent import loop as agent_loop
 from .agent.prompts import system_prompt
 from .ollama_client import health as ollama_health
+from .groq_client import health as groq_health
 from .proactive import signals as proactive
 from .db import get_conn
 
@@ -37,6 +40,7 @@ class ChatRequest(BaseModel):
     login_id: str
     message: str
     session_id: str | None = None
+    provider: str | None = None  # "ollama" (local) or "groq" (cloud); None -> default
 
 
 class ConfirmRequest(BaseModel):
@@ -51,7 +55,21 @@ def _sse(event: dict) -> str:
 
 @app.get("/api/health")
 def health() -> dict:
-    return {"status": "ok", "ollama": ollama_health()}
+    return {"status": "ok", "ollama": ollama_health(), "groq": groq_health()}
+
+
+@app.get("/api/providers")
+def providers() -> dict:
+    """Which LLM backends are usable, plus the configured default (for the UI toggle)."""
+    return {
+        "default": config.LLM_PROVIDER,
+        "providers": [
+            {"id": "ollama", "label": "Local (Ollama)", "available": ollama_health(),
+             "model": config.CHAT_MODEL},
+            {"id": "groq", "label": "Cloud (Groq)", "available": groq_health(),
+             "model": config.GROQ_CHAT_MODEL},
+        ],
+    }
 
 
 @app.get("/api/identities")
@@ -88,10 +106,14 @@ def chat_endpoint(req: ChatRequest):
     session["pending"] = None
     session["messages"].append({"role": "user", "content": req.message})
 
+    # Remember the chosen provider so a later /api/confirm resumes on the same backend.
+    provider = llm.normalize_provider(req.provider)
+    session["provider"] = provider
+
     def stream() -> Iterator[str]:
         yield _sse({"type": "session", "session_id": session_id,
-                    "role": ctx.role, "user_name": ctx.user_name})
-        for event in agent_loop.run(ctx, session["messages"]):
+                    "role": ctx.role, "user_name": ctx.user_name, "provider": provider})
+        for event in agent_loop.run(ctx, session["messages"], provider=provider):
             if event.get("type") == "pending_action":
                 session["pending"] = event["action"]
             yield _sse(event)
@@ -111,8 +133,11 @@ def confirm_endpoint(req: ConfirmRequest):
     if not proposal:
         return JSONResponse({"error": "no_pending_action"}, status_code=400)
 
+    provider = session.get("provider")
+
     def stream() -> Iterator[str]:
-        for event in agent_loop.confirm(ctx, session["messages"], proposal, req.approved):
+        for event in agent_loop.confirm(ctx, session["messages"], proposal, req.approved,
+                                        provider=provider):
             yield _sse(event)
         session["pending"] = None
 

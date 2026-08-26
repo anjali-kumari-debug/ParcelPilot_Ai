@@ -19,7 +19,7 @@ import json
 from typing import Any, Iterator
 
 from ..auth import AuthContext, find_foreign_account_refs
-from ..ollama_client import chat
+from .. import llm
 from ..tools.registry import tool_schemas, get_tool
 from ..tools import actions
 from .. import config
@@ -93,8 +93,12 @@ _OVERRIDE_QUERIES = {
 }
 
 
-def run(ctx: AuthContext, messages: list[dict]) -> Iterator[dict]:
-    """Drive the tool-calling loop until a final answer or a pending action."""
+def run(ctx: AuthContext, messages: list[dict], provider: str | None = None) -> Iterator[dict]:
+    """Drive the tool-calling loop until a final answer or a pending action.
+
+    `provider` selects the LLM backend ("ollama" local or "groq" cloud);
+    None falls back to the configured default.
+    """
     # Access-control guard (defence in depth): if a customer's request names
     # another account, refuse in code before any model/tool work. The tool layer
     # already scopes reads, but this stops the model from answering a "what are
@@ -129,13 +133,27 @@ def run(ctx: AuthContext, messages: list[dict]) -> Iterator[dict]:
 
     for _step in range(config.AGENT_MAX_STEPS):
         try:
-            msg = chat(messages, tools=tools)
+            msg = llm.chat(messages, tools=tools, provider=provider)
         except Exception as exc:  # network / model error
+            # region agent log
+            from .._debug import dlog
+            dlog("agent/loop.py:run", "LLM call failed",
+                 {"provider": provider, "step": _step, "error": repr(exc)}, hypothesis="E")
+            # endregion
             yield {"type": "error", "message": f"Model call failed: {exc}"}
             yield {"type": "done"}
             return
 
         tool_calls = msg.get("tool_calls") or []
+        # region agent log
+        from .._debug import dlog
+        dlog("agent/loop.py:run", "LLM step",
+             {"provider": provider, "step": _step,
+              "tool_names": [c.get("function", {}).get("name") for c in tool_calls],
+              "did_search": did_search, "contract_override_flagged": contract_override_flagged,
+              "final_content_len": len(msg.get("content") or "") if not tool_calls else None},
+             hypothesis="C")
+        # endregion
         # Record the assistant turn (with any tool_calls) in the transcript.
         assistant_entry: dict[str, Any] = {"role": "assistant", "content": msg.get("content", "")}
         if tool_calls:
@@ -239,10 +257,10 @@ def run(ctx: AuthContext, messages: list[dict]) -> Iterator[dict]:
     yield {"type": "done"}
 
 
-def _final_turn(ctx: AuthContext, messages: list[dict]) -> Iterator[dict]:
+def _final_turn(ctx: AuthContext, messages: list[dict], provider: str | None = None) -> Iterator[dict]:
     """Ask the model for a closing message WITHOUT tools (used after confirmation)."""
     try:
-        msg = chat(messages, tools=None)
+        msg = llm.chat(messages, tools=None, provider=provider)
     except Exception as exc:
         yield {"type": "error", "message": f"Model call failed: {exc}"}
         yield {"type": "done"}
@@ -260,7 +278,8 @@ def _final_turn(ctx: AuthContext, messages: list[dict]) -> Iterator[dict]:
     yield {"type": "done"}
 
 
-def confirm(ctx: AuthContext, messages: list[dict], proposal: dict, approved: bool) -> Iterator[dict]:
+def confirm(ctx: AuthContext, messages: list[dict], proposal: dict, approved: bool,
+            provider: str | None = None) -> Iterator[dict]:
     """Resume after the user confirms/declines a prepared action."""
     if approved:
         exec_result = actions.execute_action(ctx, proposal)
@@ -278,4 +297,4 @@ def confirm(ctx: AuthContext, messages: list[dict], proposal: dict, approved: bo
             "content": f"[system] The user DECLINED action {proposal.get('action_id')}. "
                        f"Do not perform it. Acknowledge and offer alternatives. Do not call any tools.",
         })
-    yield from _final_turn(ctx, messages)
+    yield from _final_turn(ctx, messages, provider=provider)

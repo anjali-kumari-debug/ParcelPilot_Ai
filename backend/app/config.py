@@ -18,6 +18,17 @@ import os
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
+# Load a local .env (secrets like GROQ_API_KEY) if present. Optional: in Docker
+# the values arrive as real environment variables, so a missing file is fine.
+try:
+    from dotenv import load_dotenv
+
+    _BACKEND_DIR = Path(__file__).resolve().parents[1]
+    load_dotenv(_BACKEND_DIR / ".env")
+    load_dotenv(_BACKEND_DIR.parent / ".env")  # repo-root .env as a fallback
+except Exception:
+    pass
+
 # --- Time -------------------------------------------------------------------
 # IST is UTC+05:30. We hard-code the snapshot instant from the workbook README.
 IST = timezone(timedelta(hours=5, minutes=30))
@@ -29,12 +40,26 @@ def now() -> datetime:
     return SNAPSHOT_TIME
 
 
+# --- LLM provider -----------------------------------------------------------
+# Which chat backend to use by default: "ollama" (local, free, no key) or
+# "groq" (free cloud tier, needs GROQ_API_KEY). The UI can override this
+# per-request via a toggle, so this is just the fallback default.
+LLM_PROVIDER: str = os.getenv("LLM_PROVIDER", "ollama").lower()
+
 # --- Ollama (local LLM runtime) --------------------------------------------
 # Inside docker-compose the backend reaches Ollama at host "ollama".
 OLLAMA_HOST: str = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 # Primary chat model must support tool-calling. llama3.1 does; qwen2.5 is a fallback.
 CHAT_MODEL: str = os.getenv("CHAT_MODEL", "llama3.1:8b")
 EMBED_MODEL: str = os.getenv("EMBED_MODEL", "nomic-embed-text")
+
+# --- Groq (free cloud LLM runtime) -----------------------------------------
+# OpenAI-compatible API. Get a free key at https://console.groq.com/keys and
+# set GROQ_API_KEY in the environment (or backend/.env). Embeddings still come
+# from Ollama - Groq is chat-only. Default model supports tool-calling.
+GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
+GROQ_BASE_URL: str = os.getenv("GROQ_BASE_URL", "https://api.groq.com")
+GROQ_CHAT_MODEL: str = os.getenv("GROQ_CHAT_MODEL", "openai/gpt-oss-120b")
 
 # --- Paths ------------------------------------------------------------------
 # DOC_DIR points at the given data pack ("Doc Folder"). STATE_DIR holds anything

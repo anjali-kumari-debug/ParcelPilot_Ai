@@ -19,6 +19,11 @@ export async function getSignals(loginId) {
   return res.json();
 }
 
+export async function getProviders() {
+  const res = await fetch("/api/providers");
+  return res.json();
+}
+
 async function streamPost(url, body, onEvent) {
   const res = await fetch(url, {
     method: "POST",
@@ -48,8 +53,8 @@ async function streamPost(url, body, onEvent) {
   }
 }
 
-export function sendChat({ loginId, message, sessionId }, onEvent) {
-  return streamPost("/api/chat", { login_id: loginId, message, session_id: sessionId }, onEvent);
+export function sendChat({ loginId, message, sessionId, provider }, onEvent) {
+  return streamPost("/api/chat", { login_id: loginId, message, session_id: sessionId, provider }, onEvent);
 }
 
 export function confirmAction({ loginId, sessionId, approved }, onEvent) {
