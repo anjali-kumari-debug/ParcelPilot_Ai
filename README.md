@@ -36,11 +36,11 @@ breaches (plan defaults + contract overrides), ticket clusters, multi-customer
 issues, and account hotspots.
 - **Chat UI** that shows **which tool is being used** in real time.
 
-See [docs/ARCHITECTURE_NOTE.md](docs/ARCHITECTURE_NOTE.md) and
-[docs/PRODUCT_NOTE.md](docs/PRODUCT_NOTE.md) for the write-ups, and
-[docs/DECISIONS.md](docs/DECISIONS.md) / [docs/CHANGELOG.md](docs/CHANGELOG.md)
-for the full reasoning and step-by-step build log. New to AI? Start with
-[docs/GLOSSARY.md](docs/GLOSSARY.md).
+Assessment write-ups:
+
+- [Architecture note](docs/ARCHITECTURE_NOTE.md)
+- [Product note](docs/PRODUCT_NOTE.md)
+- [AI tool usage](docs/AI_TOOL_USAGE.md)
 
 ---
 
@@ -132,6 +132,9 @@ and run `ollama pull llama3.1:8b`. Leave `ENABLE_OLLAMA` unset/false on Render.
 
 ## Architecture (at a glance)
 
+See the [architecture note](docs/ARCHITECTURE_NOTE.md) for agent design, tools,
+data handling, trust, and trade-offs.
+
 ```
 React UI ──SSE──> FastAPI ──> Agent loop (Groq; Ollama only if ENABLE_OLLAMA=true)
                                  ├─ search_documents  -> Chroma (fastembed)
@@ -148,7 +151,10 @@ Reference time for all calculations is the dataset snapshot
 ```
 backend/     FastAPI app, agent, tools, RAG + data ingestion, proactive signals
 frontend/    Vite + React chat UI (tool trace, citations, confirm modal, signals)
-docs/        decision log, changelog, glossary, architecture & product notes
+docs/
+  ARCHITECTURE_NOTE.md
+  PRODUCT_NOTE.md
+  AI_TOOL_USAGE.md
 Doc Folder/  the supplied data pack (read-only source of truth)
 Dockerfile   single-container image (Render)
 docker-compose.yml

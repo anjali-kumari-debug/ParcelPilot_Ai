@@ -18,4 +18,3 @@ frontend/dist/
 # Env / editor
 .env
 .DS_Store
-docs/
