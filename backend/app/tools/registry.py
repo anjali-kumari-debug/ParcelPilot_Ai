@@ -123,7 +123,8 @@ REGISTRY: dict[str, ToolSpec] = {
 
     "create_escalation": _fn({
         "name": "create_escalation",
-        "description": "Prepare an escalation for a ticket. Requires user confirmation before it is created.",
+        "description": "Prepare an escalation for a ticket. Call this as soon as the user asks to escalate; "
+                       "the UI will ask them to confirm — do not ask in chat.",
         "parameters": {"type": "object", "properties": {
             "ticket_id": {"type": "string"},
             "reason": {"type": "string", "description": "Why this needs escalation."},

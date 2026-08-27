@@ -16,6 +16,7 @@ full transcript for follow-up turns and for confirmation resume.
 from __future__ import annotations
 
 import json
+import re
 from typing import Any, Iterator
 
 from ..auth import AuthContext, find_foreign_account_refs
@@ -24,6 +25,29 @@ from ..tools.registry import tool_schemas, get_tool
 from ..tools import actions
 from .. import config
 from . import trust
+
+_TICKET_RE = re.compile(r"\bTKT-\d+\b", re.IGNORECASE)
+
+
+def _escalation_nudge(user_text: str) -> str | None:
+    """If the user clearly asked to escalate a ticket, return a forced tool nudge.
+
+    Models sometimes ask "shall I submit?" in prose instead of calling
+    create_escalation (which is what opens the confirm modal).
+    """
+    lower = (user_text or "").lower()
+    if "escalat" not in lower:
+        return None
+    match = _TICKET_RE.search(user_text or "")
+    if not match:
+        return None
+    ticket_id = match.group(0).upper()
+    return (
+        f"[system] The user already asked to escalate {ticket_id}. "
+        f"Call create_escalation now with ticket_id={ticket_id} and a short reason "
+        f"(and severity P1 if this is a full outage). Do not ask for confirmation "
+        f"in chat — the UI handles confirmation after you call the tool."
+    )
 
 _FALLBACK = (
     "I couldn't complete this confidently with the tools and sources available, "
@@ -130,6 +154,14 @@ def run(ctx: AuthContext, messages: list[dict], provider: str | None = None) -> 
     did_search = False
     override_query = ""
     forced_nudges = 0
+    action_nudges = 0
+
+    # Latest real user turn (for escalation nudge). Skip [system] injector messages.
+    user_turn = ""
+    for m in reversed(messages):
+        if m.get("role") == "user" and not str(m.get("content", "")).startswith("[system]"):
+            user_turn = str(m.get("content", ""))
+            break
 
     for _step in range(config.AGENT_MAX_STEPS):
         try:
@@ -169,6 +201,15 @@ def run(ctx: AuthContext, messages: list[dict], provider: str | None = None) -> 
                                "agreement, then base the final fee/credit on it if it applies. "
                                "Do not state a final number yet, and never invent a source.",
                 })
+                continue
+
+            # Guard: user asked to escalate, but the model asked in prose instead
+            # of calling create_escalation (needed to open the confirm modal).
+            nudge = _escalation_nudge(user_turn) if action_nudges < 2 else None
+            if nudge:
+                action_nudges += 1
+                messages.pop()
+                messages.append({"role": "user", "content": nudge})
                 continue
 
             content = msg.get("content", "")
